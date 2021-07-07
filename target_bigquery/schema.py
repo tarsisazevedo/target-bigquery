@@ -1,12 +1,11 @@
 import datetime
-import simplejson as json
 import re
 
+import simplejson as json
+import singer
 from google.cloud.bigquery import SchemaField
 from jsonschema import validate
 from jsonschema.exceptions import ValidationError
-import singer
-
 
 # StitchData compatible timestamp meta data
 #  https://www.stitchdata.com/docs/data-structure/system-tables-and-columns
@@ -28,6 +27,8 @@ def _get_schema_type_mode(property_, numeric_type):
         if len(type_) < 2 or type_[1] not in JSONSCHEMA_TYPES:
             # Some major taps contain type first :(
             jsonschema_type = type_[0]
+            if type_[1] != "null":
+                schema_mode = "NULLABLE"
         else:
             jsonschema_type = type_[1]
     elif isinstance(type_, str):
@@ -88,47 +89,51 @@ def _parse_property(key, property_, numeric_type="NUMERIC"):
 
     if schema_mode == "REPEATED":
         # get child type
-        schema_type, _ = _get_schema_type_mode(property_.get("items"),
-                                               numeric_type)
+        schema_type, _ = _get_schema_type_mode(property_.get("items"), numeric_type)
 
         if schema_type == "RECORD":
-            schema_fields = tuple(parse_schema(property_.get("items"),
-                                               numeric_type))
+            schema_fields = tuple(parse_schema(property_.get("items"), numeric_type))
 
-    return (schema_name, schema_type, schema_mode, schema_description,
-            schema_fields)
+    return (schema_name, schema_type, schema_mode, schema_description, schema_fields)
 
 
 def parse_schema(schema, numeric_type="NUMERIC"):
     bq_schema = []
     for key in schema["properties"].keys():
-        (schema_name, schema_type, schema_mode, schema_description,
-         schema_fields) = _parse_property(key, schema["properties"][key],
-                                          numeric_type)
-        schema_field = SchemaField(schema_name, schema_type, schema_mode,
-                                   schema_description, schema_fields)
+        (
+            schema_name,
+            schema_type,
+            schema_mode,
+            schema_description,
+            schema_fields,
+        ) = _parse_property(key, schema["properties"][key], numeric_type)
+        schema_field = SchemaField(
+            schema_name, schema_type, schema_mode, schema_description, schema_fields
+        )
         bq_schema.append(schema_field)
 
     if not bq_schema:
-        logger.warn("RECORD type does not have properties." +
-                    " Inserting a dummy string object")
-        return parse_schema({"properties": {
-            "dummy": {"type": ["null", "string"]}}},
-            numeric_type)
+        logger.warn(
+            "RECORD type does not have properties." + " Inserting a dummy string object"
+        )
+        return parse_schema(
+            {"properties": {"dummy": {"type": ["null", "string"]}}}, numeric_type
+        )
 
     return bq_schema
 
 
-def clean_and_validate(message, schemas, invalids, on_invalid_record,
-                       json_dumps=False):
+def clean_and_validate(message, schemas, invalids, on_invalid_record, json_dumps=False):
     batch_tstamp = datetime.datetime.utcnow()
-    batch_tstamp = batch_tstamp.replace(
-        tzinfo=datetime.timezone.utc)
+    batch_tstamp = batch_tstamp.replace(tzinfo=datetime.timezone.utc)
 
     if message.stream not in schemas:
-        raise Exception(("A record for stream {} was encountered" +
-                         "before a corresponding schema").format(
-                             message.stream))
+        raise Exception(
+            (
+                "A record for stream {} was encountered"
+                + "before a corresponding schema"
+            ).format(message.stream)
+        )
 
     schema = schemas[message.stream]
 
@@ -139,10 +144,14 @@ def clean_and_validate(message, schemas, invalids, on_invalid_record,
         error_message = str(e)
 
         # It's a bit hacky and fragile here...
-        instance = re.sub(r".*instance\[\'(.*)\'\].*", r"\1",
-                          error_message.split("\n")[5])
-        type_ = re.sub(r".*\{\'type\'\: \[\'.*\', \'(.*)\'\]\}.*",
-                       r"\1", error_message.split("\n")[3])
+        instance = re.sub(
+            r".*instance\[\'(.*)\'\].*", r"\1", error_message.split("\n")[5]
+        )
+        type_ = re.sub(
+            r".*\{\'type\'\: \[\'.*\', \'(.*)\'\]\}.*",
+            r"\1",
+            error_message.split("\n")[3],
+        )
 
         # Save number-convertible strings...
         if type_ in ["integer", "number"]:
@@ -177,10 +186,10 @@ def clean_and_validate(message, schemas, invalids, on_invalid_record,
         if cur_validation is False:
             invalids = invalids + 1
             if invalids < MAX_WARNING:
-                logger.warn(("Validation error in record [%s]" +
-                             " :: %s :: %s :: %s") %
-                            (instance, type_, str(message.record),
-                             str(e)))
+                logger.warn(
+                    ("Validation error in record [%s]" + " :: %s :: %s :: %s")
+                    % (instance, type_, str(message.record), str(e))
+                )
             elif invalids == MAX_WARNING:
                 logger.warn("Max validation warning reached.")
 
