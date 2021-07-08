@@ -27,7 +27,7 @@ def _get_schema_type_mode(property_, numeric_type):
         if len(type_) < 2 or type_[1] not in JSONSCHEMA_TYPES:
             # Some major taps contain type first :(
             jsonschema_type = type_[0]
-            if type_[1] != "null":
+            if len(type_) > 2 and type_[1] != "null":
                 schema_mode = "NULLABLE"
         else:
             jsonschema_type = type_[1]
