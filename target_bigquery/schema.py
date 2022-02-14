@@ -22,7 +22,7 @@ def _get_schema_type_mode(property_, numeric_type):
     schema_mode = "NULLABLE"
     if isinstance(type_, list):
         if type_[0] != "null":
-            schema_mode = "REQUIRED"
+            schema_mode = "NULLABLE"
 
         if len(type_) < 2 or type_[1] not in JSONSCHEMA_TYPES:
             # Some major taps contain type first :(
@@ -136,6 +136,17 @@ def clean_and_validate(message, schemas, invalids, on_invalid_record, json_dumps
         )
 
     schema = schemas[message.stream]
+
+    try:
+        del message.record["prices"]
+    except KeyError:
+        pass
+
+    try:
+        if message.record["description"] == None:
+            message.record["description"] = ""
+    except KeyError:
+        pass
 
     try:
         validate(message.record, schema)
