@@ -208,6 +208,10 @@ def write_records(
             load_config_props.update(load_config_properties)
         load_config = LoadJobConfig(**load_config_props)
 
+        load_config.schema_update_options = [
+            bigquery.SchemaUpdateOption.ALLOW_FIELD_RELAXATION
+        ]
+
         if row_count[table_name] == 0:
             logger.info(f"Zero records for {table}. Skip loading.")
             continue
